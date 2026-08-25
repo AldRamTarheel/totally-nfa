@@ -131,9 +131,13 @@ export async function getInsiderActivity(ticker?: string): Promise<InsiderTrade[
   return rowsToTrades(rows, url);
 }
 
-/** Aggregates a ticker's recent insider trades into a simple buy/sell sentiment summary. */
-export async function getInsiderSentiment(ticker: string): Promise<InsiderSentimentSummary> {
-  const trades = await getInsiderActivity(ticker);
+/**
+ * Aggregates a list of insider trades (already filtered to one ticker) into
+ * a simple buy/sell sentiment summary over the last 90 days. Exported so
+ * other sources (e.g. Finviz) and the cross-source combiner can reuse the
+ * exact same classification logic instead of duplicating it.
+ */
+export function summarizeInsiderTrades(ticker: string, trades: InsiderTrade[]): InsiderSentimentSummary {
   const ninetyDaysAgo = Date.now() - 90 * 24 * 60 * 60 * 1000;
   const recent = trades.filter((t) => t.transactionDate.getTime() >= ninetyDaysAgo);
 
@@ -153,4 +157,10 @@ export async function getInsiderSentiment(ticker: string): Promise<InsiderSentim
     netValue90d,
     sentiment,
   };
+}
+
+/** Aggregates a ticker's recent insider trades into a simple buy/sell sentiment summary. */
+export async function getInsiderSentiment(ticker: string): Promise<InsiderSentimentSummary> {
+  const trades = await getInsiderActivity(ticker);
+  return summarizeInsiderTrades(ticker, trades);
 }

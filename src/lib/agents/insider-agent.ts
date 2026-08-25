@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { getInsiderActivity, getInsiderSentiment } from "@/lib/data/insider-scraper";
+import { getCombinedInsiderActivity, getCombinedInsiderSentiment } from "@/lib/data/insider-combined";
 import { generateStructured } from "@/lib/gemini/client";
 import type { InsiderAgentOutput } from "@/lib/types";
 
@@ -18,12 +18,13 @@ const insiderOutputSchema = z.object({
 const CANDIDATE_POOL_SIZE = 8;
 
 /**
- * Insider/Fundamental Agent: scans OpenInsider's cluster-buy feed for
+ * Insider/Fundamental Agent: scans OpenInsider + Finviz's latest insider
+ * activity feeds (merged and deduplicated — see insider-combined.ts) for
  * candidate tickers with unusually high-conviction insider accumulation,
  * then asks Gemini to rank the strongest few.
  */
 export async function runInsiderAgent(): Promise<InsiderAgentOutput> {
-  const clusterBuys = await getInsiderActivity(); // site-wide cluster buy discovery
+  const clusterBuys = await getCombinedInsiderActivity(); // site-wide discovery, both sources
 
   // Dedup to unique tickers, ranked by total purchase value in the feed, cap the pool
   // so we don't hammer per-ticker pages or blow up the prompt.
@@ -41,11 +42,11 @@ export async function runInsiderAgent(): Promise<InsiderAgentOutput> {
     return { candidates: [] };
   }
 
-  const sentiments = await Promise.all(topTickers.map((t) => getInsiderSentiment(t)));
+  const sentiments = await Promise.all(topTickers.map((t) => getCombinedInsiderSentiment(t)));
 
   const prompt = `You are an insider-activity analyst for an educational stock-picking tool.
 
-Candidate tickers currently showing cluster insider buying, with their 90-day insider trade summary:
+Candidate tickers currently showing cluster insider buying, with their 90-day insider trade summary (merged from OpenInsider and Finviz):
 ${JSON.stringify(sentiments, null, 2)}
 
 From these candidates, identify up to 5 tickers with the strongest, most credible insider-conviction bullish signal (multiple insiders buying, meaningful dollar amounts relative to sells). Explain each briefly.
