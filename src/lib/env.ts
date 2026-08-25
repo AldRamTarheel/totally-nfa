@@ -10,7 +10,11 @@ const serverEnvSchema = z.object({
   NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(1),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
   GEMINI_API_KEY: z.string().min(1),
-  GEMINI_MODEL: z.string().min(1).default("gemini-flash-latest"),
+  // "gemini-flash-lite-latest" — the plain "-flash-" (non-lite) alias
+  // currently resolves to a brand-new preview model with a very tight
+  // (~20/day) free-tier quota; the lite variant has proven far more usable
+  // for a low-volume cron job like this one.
+  GEMINI_MODEL: z.string().min(1).default("gemini-flash-lite-latest"),
   NTFY_DEFAULT_TOPIC: z.string().min(1),
   CRON_SECRET: z.string().min(16, "CRON_SECRET should be a long random string"),
   MACRO_TICKERS: z

@@ -8,6 +8,7 @@ import { sendNtfyNotification, getNtfyTopic } from "@/lib/notifications/ntfy";
 import type { StockPick } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 120;
 
 function getPreviousWeekBounds() {
   const now = new Date();

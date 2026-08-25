@@ -34,6 +34,14 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// OpenInsider's HTML uses non-breaking spaces ( ) inside multi-word
+// header labels like "Trade Type" — collapse ALL whitespace (regular and
+// non-breaking) to single plain spaces so header text can be matched with
+// plain string literals like row["Trade Type"].
+function normalizeText(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
 function parseMoney(text: string): number {
   const cleaned = text.replace(/[+$,]/g, "").trim();
   const n = Number(cleaned);
@@ -52,7 +60,7 @@ function parseTinyTable($: cheerio.CheerioAPI): Record<string, string>[] {
     .find("tr")
     .first()
     .find("th")
-    .map((_, el) => $(el).text().trim())
+    .map((_, el) => normalizeText($(el).text()))
     .get();
   const rows: Record<string, string>[] = [];
   table
@@ -61,7 +69,7 @@ function parseTinyTable($: cheerio.CheerioAPI): Record<string, string>[] {
     .each((_, tr) => {
       const cells = $(tr)
         .find("td")
-        .map((_, td) => $(td).text().trim())
+        .map((_, td) => normalizeText($(td).text()))
         .get();
       if (cells.length === 0) return;
       const row: Record<string, string> = {};

@@ -7,6 +7,10 @@ import { getQuote } from "@/lib/data/yahoo";
 import { sendNtfyNotification, getNtfyTopic } from "@/lib/notifications/ntfy";
 
 export const dynamic = "force-dynamic";
+// Give the pipeline room to ride out Gemini free-tier rate-limit waits.
+// Vercel caps this to whatever the plan allows (60s on Hobby); harmless to
+// request more.
+export const maxDuration = 120;
 
 async function handle(req: Request): Promise<Response> {
   if (!isAuthorizedCronRequest(req)) return unauthorizedResponse();

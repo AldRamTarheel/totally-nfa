@@ -78,9 +78,12 @@ export async function getHistorical(
   opts: { period1?: string | Date; period2?: string | Date; interval?: "1d" | "1wk" } = {}
 ): Promise<OhlcvBar[]> {
   try {
+    // yahoo-finance2's schema validator rejects an explicitly-present
+    // `period2: undefined` key (as opposed to the key being omitted), so
+    // only include it when actually provided.
     const result = await yf.chart(symbol, {
       period1: opts.period1 ?? subDays(new Date(), 90),
-      period2: opts.period2,
+      ...(opts.period2 ? { period2: opts.period2 } : {}),
       interval: opts.interval ?? "1d",
     });
     return (result.quotes ?? [])

@@ -21,9 +21,9 @@ interface SynthesisInputs {
 
 /**
  * Synthesis Engine: the only agent that produces the final persisted pick.
- * Runs the Technical Agent against the insider agent's top candidate(s),
- * pulls that candidate's recent news, and asks Gemini to make one bold,
- * well-justified call (or explicitly decline with ticker: null).
+ * Runs the Technical Agent against the insider agent's single top-ranked
+ * candidate, pulls that candidate's recent news, and asks Gemini to make one
+ * bold, well-justified call (or explicitly decline with ticker: null).
  */
 export async function runSynthesisEngine(inputs: SynthesisInputs): Promise<SynthesisOutput> {
   const { macro, insider } = inputs;
@@ -40,50 +40,53 @@ export async function runSynthesisEngine(inputs: SynthesisInputs): Promise<Synth
     };
   }
 
-  // Run technical analysis on the top 3 insider candidates in parallel.
-  const topCandidates = insider.candidates.slice(0, 3);
-  const technicalResults = await Promise.allSettled(
-    topCandidates.map((c) => runTechnicalAgent(c.ticker))
-  );
-  const technical: TechnicalAgentOutput[] = technicalResults
-    .filter((r): r is PromiseFulfilledResult<TechnicalAgentOutput> => r.status === "fulfilled")
-    .map((r) => r.value);
+  // Only run the Technical Agent on the single top-ranked insider candidate
+  // (not the top 3 in parallel) — Gemini's free tier caps at ~5 requests per
+  // minute, and this pipeline already makes 4 calls total (macro, insider,
+  // technical, synthesis) in one run. Bursting 3 parallel technical calls on
+  // top of that reliably blows the quota.
+  const primaryTicker = insider.candidates[0].ticker;
+  let technical: TechnicalAgentOutput | null = null;
+  try {
+    technical = await runTechnicalAgent(primaryTicker);
+  } catch (err) {
+    console.error(`Technical agent failed for ${primaryTicker}:`, err);
+  }
 
-  if (technical.length === 0) {
+  if (!technical) {
     return {
       ticker: null,
       convictionScore: 1,
       invalidationPrice: 0,
-      thesis: "Technical data unavailable for today's insider candidates.",
+      thesis: `Technical data unavailable for today's top insider candidate (${primaryTicker}).`,
       insiderSentiment: "neutral",
       category: "no-pick",
       tags: [],
     };
   }
 
-  // Pull news for the single top-ranked candidate to keep prompt size small.
-  const primaryTicker = topCandidates[0].ticker;
   const news = await getNewsForTicker(primaryTicker, 6);
 
-  const prompt = `You are the synthesis engine of an educational, "for entertainment/education only" AI stock-picking tool. You connect macro narrative, insider conviction, and technical setup into ONE bold, well-justified equity pick — or you explicitly decline if nothing is compelling.
+  const prompt = `You are the synthesis engine of an educational, "for entertainment/education only" AI stock-picking tool. You connect macro narrative, insider conviction, and technical setup into ONE bold, well-justified equity pick on a single candidate ticker — or you explicitly decline if it isn't compelling.
 
 MACRO CONTEXT:
 ${JSON.stringify(macro, null, 2)}
 
-INSIDER CANDIDATES:
+ALL INSIDER CANDIDATES CONSIDERED TODAY (for context; you are only evaluating the top-ranked one below):
 ${JSON.stringify(insider.candidates, null, 2)}
 
-TECHNICAL READS ON THOSE CANDIDATES:
+CANDIDATE UNDER EVALUATION: ${primaryTicker}
+TECHNICAL READ:
 ${JSON.stringify(technical, null, 2)}
 
-RECENT NEWS ON TOP CANDIDATE (${primaryTicker}):
+RECENT NEWS ON ${primaryTicker}:
 ${news.map((n) => `- ${n.title} (${n.source ?? "unknown"}, ${n.pubDate})`).join("\n") || "No recent headlines found."}
 
-Pick exactly ONE ticker from the candidates above that has the strongest combined case (or set ticker to null if none are compelling enough for a real conviction call). Assign a conviction score 1-10 (10 = extremely high conviction), an invalidation price (a specific price level that, if closed below, disproves the thesis — use the technical agent's suggestion as a starting point, adjust if warranted), and a 2-4 sentence thesis that explicitly connects the macro regime, insider signal, and technical setup. Also assign a short category label (e.g. "insider-cluster-buy", "macro-momentum", "earnings-catalyst") and a few lowercase tags.
+Decide whether ${primaryTicker} has a strong enough combined case (set ticker to "${primaryTicker}"), or decline (set ticker to null) if it isn't compelling enough for a real conviction call. Assign a conviction score 1-10 (10 = extremely high conviction), an invalidation price (a specific price level that, if closed below, disproves the thesis — use the technical agent's suggestion as a starting point, adjust if warranted), and a 2-4 sentence thesis that explicitly connects the macro regime, insider signal, and technical setup. Also assign a short category label (e.g. "insider-cluster-buy", "macro-momentum", "earnings-catalyst") and a few lowercase tags.
 
 Respond with ONLY JSON matching this exact shape, no markdown fences:
 {
-  "ticker": "TICK" | null,
+  "ticker": "${primaryTicker}" | null,
   "convictionScore": number (1-10 integer),
   "invalidationPrice": number,
   "thesis": "2-4 sentences",
