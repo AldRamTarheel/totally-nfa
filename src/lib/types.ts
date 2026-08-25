@@ -4,6 +4,47 @@ export type PickStatus = "active" | "closed";
 export type Sentiment = "bullish" | "bearish" | "neutral";
 export type MarketRegime = "risk-on" | "risk-off" | "neutral";
 export type Trend = "uptrend" | "downtrend" | "sideways";
+export type ClosedReason = "invalidation_hit" | "target_hit" | "manual" | "graded" | null;
+
+/** A clickable source link surfaced on the pick detail page for the user to verify themselves. */
+export interface PickReference {
+  title: string;
+  url: string;
+  source?: string;
+}
+
+export interface PickMarketReference {
+  question: string;
+  url: string;
+  outcomes: { name: string; probability: number }[];
+}
+
+/**
+ * Structured breakdown of the reasoning behind a pick, stored in
+ * `stock_picks.details` (jsonb). Optional/partial because picks made before
+ * this field existed have `details: {}`.
+ */
+export interface PickDetails {
+  macro?: {
+    regime: MarketRegime;
+    summary: string;
+    keyFactors: string[];
+  };
+  insider?: {
+    candidates: InsiderCandidate[];
+  };
+  technical?: {
+    trend: Trend;
+    notes: string;
+  };
+  references?: {
+    tickerNews: PickReference[];
+    macroNews: PickReference[];
+    markets: PickMarketReference[];
+    yahooFinanceUrl: string;
+    openInsiderUrl: string;
+  };
+}
 
 /** Row shape of the `stock_picks` table. */
 export interface StockPick {
@@ -15,13 +56,15 @@ export interface StockPick {
   last_checked_at: string | null;
   conviction_score: number;
   invalidation_price: number;
+  target_price: number | null;
   insider_sentiment: Sentiment | null;
   thesis: string;
   status: PickStatus;
   category: string | null;
   tags: string[];
   closed_at: string | null;
-  closed_reason: string | null;
+  closed_reason: ClosedReason;
+  details: PickDetails;
 }
 
 /** Row shape of the `weekly_retrospectives` table. */
@@ -72,6 +115,7 @@ export interface SynthesisOutput {
   ticker: string | null;
   convictionScore: number;
   invalidationPrice: number;
+  targetPrice: number;
   thesis: string;
   insiderSentiment: Sentiment;
   category: string;

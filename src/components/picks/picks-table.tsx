@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { formatDistanceToNow } from "date-fns";
+import { ChevronRight } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -34,11 +37,25 @@ function PnlCell({ alertPrice, livePrice }: { alertPrice: number; livePrice: num
 }
 
 function PicksRows({ picks, liveQuotes }: { picks: StockPick[]; liveQuotes: QuoteMap }) {
+  const router = useRouter();
+
   return (
     <>
       {picks.map((pick) => (
-        <TableRow key={pick.id}>
-          <TableCell className="font-semibold">{pick.ticker}</TableCell>
+        <TableRow
+          key={pick.id}
+          className="cursor-pointer"
+          onClick={() => router.push(`/picks/${pick.id}`)}
+        >
+          <TableCell className="font-semibold">
+            <Link
+              href={`/picks/${pick.id}`}
+              className="hover:underline"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {pick.ticker}
+            </Link>
+          </TableCell>
           <TableCell className="font-mono">${pick.alert_price.toFixed(2)}</TableCell>
           <TableCell className="font-mono">
             {liveQuotes[pick.ticker] != null ? `$${liveQuotes[pick.ticker].toFixed(2)}` : (
@@ -52,16 +69,25 @@ function PicksRows({ picks, liveQuotes }: { picks: StockPick[]; liveQuotes: Quot
             <ConvictionBadge score={pick.conviction_score} />
           </TableCell>
           <TableCell className="font-mono text-muted-foreground">
-            ${pick.invalidation_price.toFixed(2)}
+            {pick.target_price ? `$${pick.target_price.toFixed(2)}` : "—"}
           </TableCell>
           <TableCell>
-            <Badge variant={pick.status === "active" ? "default" : "secondary"}>{pick.status}</Badge>
-          </TableCell>
-          <TableCell className="text-muted-foreground whitespace-normal max-w-xs">
-            {pick.thesis}
+            <Badge
+              variant={pick.status === "active" ? "default" : "secondary"}
+              className="capitalize"
+            >
+              {pick.status === "closed" && pick.closed_reason === "target_hit"
+                ? "target hit"
+                : pick.status === "closed" && pick.closed_reason === "invalidation_hit"
+                  ? "stopped out"
+                  : pick.status}
+            </Badge>
           </TableCell>
           <TableCell className="text-muted-foreground text-xs">
             {formatDistanceToNow(new Date(pick.created_at), { addSuffix: true })}
+          </TableCell>
+          <TableCell>
+            <ChevronRight className="size-4 text-muted-foreground" />
           </TableCell>
         </TableRow>
       ))}
@@ -79,10 +105,10 @@ function PicksTableShell({ picks, liveQuotes }: { picks: StockPick[]; liveQuotes
           <TableHead>Live Price</TableHead>
           <TableHead>PnL %</TableHead>
           <TableHead>Conviction</TableHead>
-          <TableHead>Invalidation</TableHead>
+          <TableHead>Target</TableHead>
           <TableHead>Status</TableHead>
-          <TableHead>Thesis</TableHead>
           <TableHead>Picked</TableHead>
+          <TableHead className="w-8" />
         </TableRow>
       </TableHeader>
       <TableBody>

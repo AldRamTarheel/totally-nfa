@@ -5,6 +5,8 @@ import { getQuotes } from "@/lib/data/yahoo";
 import { computePnlPercent, hasHitInvalidation } from "@/lib/pnl";
 import { runRetrospectiveAgent, type GradedPick } from "@/lib/agents/retrospective-agent";
 import { sendNtfyNotification, getNtfyTopic } from "@/lib/notifications/ntfy";
+import { notifyClosures } from "@/lib/notifications/position-alerts";
+import { closeHitPositions } from "@/lib/position-monitor";
 import type { StockPick } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -24,9 +26,17 @@ async function handle(req: Request): Promise<Response> {
 
   try {
     const supabase = getServerSupabase();
+    const topic = await getNtfyTopic(supabase);
+
+    // 1. Defensive re-check: daily-pick already closes hit positions every
+    // weekday, but this catches anything from a weekend gap or a missed run.
+    const closures = await closeHitPositions(supabase);
+    await notifyClosures(topic, closures);
+
     const { weekStart, weekEnd } = getPreviousWeekBounds();
 
-    // 1. Pull picks created within last week's window.
+    // 2. Pull picks created within last week's window (their status now
+    // reflects any closures from step 1).
     const { data: picks, error: fetchError } = await supabase
       .from("stock_picks")
       .select("*")
@@ -37,38 +47,22 @@ async function handle(req: Request): Promise<Response> {
     const typedPicks = (picks ?? []) as StockPick[];
 
     if (typedPicks.length === 0) {
-      return Response.json({ status: "no-picks-to-grade", weekStart, weekEnd });
+      return Response.json({ status: "no-picks-to-grade", weekStart, weekEnd, closures });
     }
 
-    // 2. Fetch live prices, compute PnL and invalidation status per pick.
+    // 3. Fetch live prices and compute PnL for grading.
     const uniqueTickers = [...new Set(typedPicks.map((p) => p.ticker))];
     const quotes = await getQuotes(uniqueTickers);
     const priceByTicker = new Map(quotes.map((q) => [q.symbol, q.regularMarketPrice]));
 
     const graded: GradedPick[] = typedPicks.map((pick) => {
-      const livePrice = priceByTicker.get(pick.ticker) ?? pick.alert_price;
+      const livePrice = priceByTicker.get(pick.ticker) ?? pick.last_checked_price ?? pick.alert_price;
       return {
         ...pick,
         returnPct: computePnlPercent(pick.alert_price, livePrice),
         hitInvalidation: hasHitInvalidation(pick.alert_price, pick.invalidation_price, livePrice),
       };
     });
-
-    // 3. Auto-close any active picks that crossed their invalidation price.
-    const closures = graded.filter((g) => g.hitInvalidation && g.status === "active");
-    for (const g of closures) {
-      const { error: updateError } = await supabase
-        .from("stock_picks")
-        .update({
-          status: "closed",
-          closed_at: new Date().toISOString(),
-          closed_reason: "invalidation_hit",
-          last_checked_price: priceByTicker.get(g.ticker) ?? g.alert_price,
-          last_checked_at: new Date().toISOString(),
-        })
-        .eq("id", g.id);
-      if (updateError) console.error(`Failed to auto-close ${g.ticker}:`, updateError);
-    }
 
     // 4. Ask Gemini to write the retrospective.
     const retro = await runRetrospectiveAgent(graded);
@@ -86,14 +80,13 @@ async function handle(req: Request): Promise<Response> {
     if (insertError) throw insertError;
 
     // 6. Notify.
-    const topic = await getNtfyTopic(supabase);
     await sendNtfyNotification({
       topic,
       title: "Weekly AI Retrospective Ready",
       message: retro.summary.slice(0, 200),
     });
 
-    return Response.json({ status: "graded", pickCount: graded.length, closedCount: closures.length });
+    return Response.json({ status: "graded", pickCount: graded.length, closures });
   } catch (err) {
     console.error("weekly-grade cron failed:", err);
     return Response.json({ status: "error", message: (err as Error).message }, { status: 500 });

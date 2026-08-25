@@ -15,3 +15,11 @@ export function hasHitInvalidation(
   const isBullish = invalidationPrice < alertPrice;
   return isBullish ? livePrice <= invalidationPrice : livePrice >= invalidationPrice;
 }
+
+/** Whether a pick has reached its take-profit target price. */
+export function hasHitTarget(alertPrice: number, targetPrice: number, livePrice: number): boolean {
+  // Target is an upside goal for a bullish thesis (target > alert), but guard
+  // both directions in case a thesis is ever framed as bearish.
+  const isBullish = targetPrice > alertPrice;
+  return isBullish ? livePrice >= targetPrice : livePrice <= targetPrice;
+}

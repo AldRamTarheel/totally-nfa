@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { getMacroSnapshot } from "@/lib/data/yahoo";
-import { getMacroNews } from "@/lib/data/news";
-import { getMacroRelevantMarkets } from "@/lib/data/polymarket";
+import { getMacroNews, type NewsHeadline } from "@/lib/data/news";
+import { getMacroRelevantMarkets, type PredictionMarket } from "@/lib/data/polymarket";
 import { generateStructured } from "@/lib/gemini/client";
 import type { MacroAgentOutput } from "@/lib/types";
 
@@ -11,11 +11,19 @@ const macroOutputSchema = z.object({
   keyFactors: z.array(z.string()).min(1),
 });
 
+export interface MacroAgentResult {
+  analysis: MacroAgentOutput;
+  // The raw news/market data the analysis drew on, kept around so the route
+  // can persist them as clickable references on the pick detail page.
+  news: NewsHeadline[];
+  markets: PredictionMarket[];
+}
+
 /**
  * Macro/Context Agent: assesses overall market risk appetite from index/
  * commodity proxies, recent macro headlines, and prediction-market odds.
  */
-export async function runMacroAgent(): Promise<MacroAgentOutput> {
+export async function runMacroAgent(): Promise<MacroAgentResult> {
   const [quotes, news, markets] = await Promise.all([
     getMacroSnapshot(),
     getMacroNews(8),
@@ -42,5 +50,6 @@ Respond with ONLY JSON matching this exact shape, no markdown fences:
   "keyFactors": ["short bullet", "short bullet", ...]
 }`;
 
-  return generateStructured(prompt, macroOutputSchema);
+  const analysis = await generateStructured(prompt, macroOutputSchema);
+  return { analysis, news, markets };
 }
