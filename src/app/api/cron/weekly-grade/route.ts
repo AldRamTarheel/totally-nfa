@@ -7,7 +7,10 @@ import { runRetrospectiveAgent, type GradedPick } from "@/lib/agents/retrospecti
 import { sendNtfyNotification, getNtfyTopic } from "@/lib/notifications/ntfy";
 import { notifyClosures } from "@/lib/notifications/position-alerts";
 import { closeHitPositions } from "@/lib/position-monitor";
+import { sendCronFailureNotification } from "@/lib/notifications/cron-failure";
+import { logPipelineRun } from "@/lib/pipeline-log";
 import type { StockPick } from "@/lib/types";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -24,8 +27,10 @@ function getPreviousWeekBounds() {
 async function handle(req: Request): Promise<Response> {
   if (!isAuthorizedCronRequest(req)) return unauthorizedResponse();
 
+  let supabase: SupabaseClient | undefined;
+
   try {
-    const supabase = getServerSupabase();
+    supabase = getServerSupabase();
     const topic = await getNtfyTopic(supabase);
 
     // 1. Defensive re-check: daily-pick already closes hit positions every
@@ -47,6 +52,7 @@ async function handle(req: Request): Promise<Response> {
     const typedPicks = (picks ?? []) as StockPick[];
 
     if (typedPicks.length === 0) {
+      await logPipelineRun(supabase, { job: "weekly-grade", status: "no-picks-to-grade" });
       return Response.json({ status: "no-picks-to-grade", weekStart, weekEnd, closures });
     }
 
@@ -79,6 +85,12 @@ async function handle(req: Request): Promise<Response> {
     );
     if (insertError) throw insertError;
 
+    await logPipelineRun(supabase, {
+      job: "weekly-grade",
+      status: "graded",
+      message: retro.summary.slice(0, 200),
+    });
+
     // 6. Notify.
     await sendNtfyNotification({
       topic,
@@ -89,6 +101,16 @@ async function handle(req: Request): Promise<Response> {
     return Response.json({ status: "graded", pickCount: graded.length, closures });
   } catch (err) {
     console.error("weekly-grade cron failed:", err);
+    await sendCronFailureNotification("weekly-grade", err).catch((notifyErr) => {
+      console.error("weekly-grade: failed to send cron failure notification:", notifyErr);
+    });
+    if (supabase) {
+      await logPipelineRun(supabase, {
+        job: "weekly-grade",
+        status: "error",
+        message: (err as Error).message,
+      }).catch(() => {});
+    }
     return Response.json({ status: "error", message: (err as Error).message }, { status: 500 });
   }
 }

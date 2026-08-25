@@ -7,6 +7,8 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { ConvictionBadge } from "@/components/picks/conviction-badge";
 import { PickPriceStats } from "@/components/picks/pick-price-stats";
+import { PriceSparkline } from "@/components/picks/price-sparkline";
+import { EarningsFlag } from "@/components/picks/earnings-flag";
 import { getBrowserSupabase } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import type { StockPick } from "@/lib/types";
@@ -90,6 +92,7 @@ export default async function PickDetailPage({ params }: { params: Promise<{ id:
               : pick.status}
         </Badge>
         {pick.category && <Badge variant="outline">{pick.category}</Badge>}
+        {pick.status === "active" && <EarningsFlag ticker={pick.ticker} />}
       </div>
       <p className="text-sm text-muted-foreground -mt-4">
         Picked {format(new Date(pick.created_at), "MMMM d, yyyy 'at' h:mm a")}
@@ -97,6 +100,19 @@ export default async function PickDetailPage({ params }: { params: Promise<{ id:
       </p>
 
       <PickPriceStats pick={pick} />
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Price Since Pick</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <PriceSparkline
+            ticker={pick.ticker}
+            sinceISO={pick.created_at}
+            untilISO={pick.status === "closed" ? (pick.closed_at ?? undefined) : undefined}
+          />
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

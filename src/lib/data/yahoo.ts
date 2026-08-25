@@ -106,3 +106,33 @@ export async function getMacroSnapshot(): Promise<QuoteSnapshot[]> {
   const { MACRO_TICKERS } = getServerEnv();
   return getQuotes(MACRO_TICKERS);
 }
+
+export interface EarningsCalendar {
+  earningsDate: Date | null;
+  exDividendDate: Date | null;
+  dividendDate: Date | null;
+}
+
+/**
+ * Fetched live on every page view (not stored at pick-creation time) since
+ * earnings dates move and pass — a stored value would go stale. Non-fatal:
+ * returns all-null on failure rather than throwing, since this is a
+ * supplementary UI flag, not core pipeline data.
+ */
+export async function getEarningsCalendar(symbol: string): Promise<EarningsCalendar> {
+  try {
+    const result = await yf.quoteSummary(symbol, { modules: ["calendarEvents"] });
+    const events = (result as unknown as Record<string, unknown>).calendarEvents as
+      | Record<string, unknown>
+      | undefined;
+    const earnings = events?.earnings as { earningsDate?: (string | Date)[] } | undefined;
+    return {
+      earningsDate: earnings?.earningsDate?.[0] ? new Date(earnings.earningsDate[0]) : null,
+      exDividendDate: events?.exDividendDate ? new Date(events.exDividendDate as string) : null,
+      dividendDate: events?.dividendDate ? new Date(events.dividendDate as string) : null,
+    };
+  } catch (err) {
+    console.error(`getEarningsCalendar(${symbol}) failed:`, err);
+    return { earningsDate: null, exDividendDate: null, dividendDate: null };
+  }
+}

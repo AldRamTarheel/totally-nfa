@@ -1,6 +1,8 @@
 import { RetrospectiveList } from "@/components/grading/retrospective-list";
+import { PipelineRunLog } from "@/components/grading/pipeline-run-log";
 import { getBrowserSupabase } from "@/lib/supabase/client";
 import type { WeeklyRetrospective } from "@/lib/types";
+import type { PipelineRun } from "@/lib/pipeline-log";
 
 export const dynamic = "force-dynamic";
 
@@ -13,8 +15,18 @@ async function getRetrospectives() {
   return (data ?? []) as WeeklyRetrospective[];
 }
 
+async function getPipelineRuns() {
+  const supabase = getBrowserSupabase();
+  const { data } = await supabase
+    .from("pipeline_runs")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(30);
+  return (data ?? []) as PipelineRun[];
+}
+
 export default async function GradingPage() {
-  const retrospectives = await getRetrospectives();
+  const [retrospectives, runs] = await Promise.all([getRetrospectives(), getPipelineRuns()]);
 
   return (
     <div className="space-y-6">
@@ -26,6 +38,7 @@ export default async function GradingPage() {
         </p>
       </div>
       <RetrospectiveList retrospectives={retrospectives} />
+      <PipelineRunLog runs={runs} />
     </div>
   );
 }

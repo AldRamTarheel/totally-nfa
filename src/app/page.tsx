@@ -49,7 +49,7 @@ export default async function DashboardPage() {
           <CardDescription>Closed picks — invalidated or manually resolved.</CardDescription>
         </CardHeader>
         <CardContent>
-          <PicksTable picks={past} />
+          <PicksTable picks={past} showFilters />
         </CardContent>
       </Card>
     </div>

@@ -7,7 +7,10 @@ import { getQuote } from "@/lib/data/yahoo";
 import { sendNtfyNotification, getNtfyTopic } from "@/lib/notifications/ntfy";
 import { notifyClosures } from "@/lib/notifications/position-alerts";
 import { closeHitPositions } from "@/lib/position-monitor";
+import { sendCronFailureNotification } from "@/lib/notifications/cron-failure";
+import { logPipelineRun } from "@/lib/pipeline-log";
 import type { PickDetails } from "@/lib/types";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
 // Give the pipeline room to ride out Gemini free-tier rate-limit waits.
@@ -18,8 +21,10 @@ export const maxDuration = 120;
 async function handle(req: Request): Promise<Response> {
   if (!isAuthorizedCronRequest(req)) return unauthorizedResponse();
 
+  let supabase: SupabaseClient | undefined;
+
   try {
-    const supabase = getServerSupabase();
+    supabase = getServerSupabase();
     const topic = await getNtfyTopic(supabase);
 
     // 1. Check every active pick against its invalidation/target levels
@@ -35,6 +40,7 @@ async function handle(req: Request): Promise<Response> {
     const { pick: synthesis, technical, tickerNews } = await runSynthesisEngine({ macro, insider });
 
     if (!synthesis.ticker) {
+      await logPipelineRun(supabase, { job: "daily-pick", status: "no-pick", message: synthesis.thesis });
       return Response.json({ status: "no-pick", reason: synthesis.thesis, closures });
     }
 
@@ -47,6 +53,7 @@ async function handle(req: Request): Promise<Response> {
       .maybeSingle();
     if (lookupError) throw lookupError;
     if (existing) {
+      await logPipelineRun(supabase, { job: "daily-pick", status: "duplicate", ticker: synthesis.ticker });
       return Response.json({ status: "duplicate-active", ticker: synthesis.ticker, closures });
     }
 
@@ -92,6 +99,8 @@ async function handle(req: Request): Promise<Response> {
     });
     if (insertError) throw insertError;
 
+    await logPipelineRun(supabase, { job: "daily-pick", status: "picked", ticker: synthesis.ticker });
+
     // 7. Notify.
     await sendNtfyNotification({
       topic,
@@ -108,6 +117,16 @@ async function handle(req: Request): Promise<Response> {
     });
   } catch (err) {
     console.error("daily-pick cron failed:", err);
+    await sendCronFailureNotification("daily-pick", err).catch((notifyErr) => {
+      console.error("daily-pick: failed to send cron failure notification:", notifyErr);
+    });
+    if (supabase) {
+      await logPipelineRun(supabase, {
+        job: "daily-pick",
+        status: "error",
+        message: (err as Error).message,
+      }).catch(() => {});
+    }
     return Response.json({ status: "error", message: (err as Error).message }, { status: 500 });
   }
 }
