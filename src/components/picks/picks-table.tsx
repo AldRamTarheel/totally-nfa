@@ -87,11 +87,7 @@ function PicksRows({ picks, liveQuotes }: { picks: StockPick[]; liveQuotes: Quot
               variant={pick.status === "active" ? "default" : "secondary"}
               className="capitalize"
             >
-              {pick.status === "closed" && pick.closed_reason === "target_hit"
-                ? "target hit"
-                : pick.status === "closed" && pick.closed_reason === "invalidation_hit"
-                  ? "stopped out"
-                  : pick.status}
+              {statusLabel(pick)}
             </Badge>
           </TableCell>
           <TableCell className="text-muted-foreground text-xs">
@@ -103,6 +99,57 @@ function PicksRows({ picks, liveQuotes }: { picks: StockPick[]; liveQuotes: Quot
         </TableRow>
       ))}
     </>
+  );
+}
+
+function statusLabel(pick: StockPick): string {
+  if (pick.status === "closed" && pick.closed_reason === "target_hit") return "target hit";
+  if (pick.status === "closed" && pick.closed_reason === "invalidation_hit") return "stopped out";
+  return pick.status;
+}
+
+/**
+ * Mobile card layout — the table above has 9 columns and genuinely doesn't
+ * fit a phone screen even with the table's own horizontal scroll container;
+ * below `sm` we render this stacked-card view instead so nothing on the
+ * page ever needs to scroll sideways.
+ */
+function PickCard({ pick, livePrice }: { pick: StockPick; livePrice: number | null }) {
+  return (
+    <Link
+      href={`/picks/${pick.id}`}
+      className="block rounded-lg border p-3 space-y-2 hover:bg-muted/50 transition-colors"
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className="font-semibold">{pick.ticker}</span>
+        <div className="flex items-center gap-2">
+          <ConvictionBadge score={pick.conviction_score} />
+          <ChevronRight className="size-4 text-muted-foreground" />
+        </div>
+      </div>
+      <div className="flex items-center justify-between gap-2 text-sm">
+        <span className="font-mono text-muted-foreground">
+          ${pick.alert_price.toFixed(2)} → {livePrice != null ? `$${livePrice.toFixed(2)}` : "…"}
+        </span>
+        <PnlCell alertPrice={pick.alert_price} livePrice={livePrice} />
+      </div>
+      <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+        <Badge variant={pick.status === "active" ? "default" : "secondary"} className="capitalize">
+          {statusLabel(pick)}
+        </Badge>
+        <span>{formatDistanceToNow(new Date(pick.created_at), { addSuffix: true })}</span>
+      </div>
+    </Link>
+  );
+}
+
+function PicksCards({ picks, liveQuotes }: { picks: StockPick[]; liveQuotes: QuoteMap }) {
+  return (
+    <div className="space-y-2">
+      {picks.map((pick) => (
+        <PickCard key={pick.id} pick={pick} livePrice={liveQuotes[pick.ticker] ?? null} />
+      ))}
+    </div>
   );
 }
 
@@ -204,7 +251,7 @@ export function PicksTable({
   return (
     <>
       {showFilters && (
-        <div className="flex gap-2 mb-3">
+        <div className="flex flex-wrap gap-2 mb-3">
           <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as StatusFilter)}>
             <SelectTrigger size="sm">
               <SelectValue placeholder="Status" />
@@ -256,7 +303,15 @@ export function PicksTable({
           No picks match these filters.
         </p>
       ) : (
-        <PicksTableShell picks={filteredPicks} liveQuotes={liveQuotes} />
+        <>
+          {/* Mobile: stacked cards, never scrolls sideways. Desktop/tablet: full table. */}
+          <div className="sm:hidden">
+            <PicksCards picks={filteredPicks} liveQuotes={liveQuotes} />
+          </div>
+          <div className="hidden sm:block">
+            <PicksTableShell picks={filteredPicks} liveQuotes={liveQuotes} />
+          </div>
+        </>
       )}
     </>
   );
