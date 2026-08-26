@@ -1,7 +1,13 @@
 import { z } from "zod";
 import { getNewsForTicker, type NewsHeadline } from "@/lib/data/news";
 import { generateStructured } from "@/lib/gemini/client";
-import type { MacroAgentOutput, InsiderAgentOutput, TechnicalAgentOutput, SynthesisOutput } from "@/lib/types";
+import type {
+  MacroAgentOutput,
+  InsiderAgentOutput,
+  InsiderCandidate,
+  TechnicalAgentOutput,
+  SynthesisOutput,
+} from "@/lib/types";
 import { runTechnicalAgent } from "@/lib/agents/technical-agent";
 
 export const synthesisOutputSchema = z.object({
@@ -18,6 +24,12 @@ export const synthesisOutputSchema = z.object({
 interface SynthesisInputs {
   macro: MacroAgentOutput;
   insider: InsiderAgentOutput;
+  // Which candidate to actually evaluate. Callers decide this — e.g. the
+  // daily-pick route skips candidates that are already active picks (a free
+  // DB check) before spending any Gemini quota, so a persistently top-ranked
+  // ticker doesn't block a genuinely new opportunity from ever being
+  // considered. Defaults to the top-ranked candidate if omitted.
+  candidate?: InsiderCandidate;
 }
 
 export interface SynthesisResult {
@@ -58,12 +70,12 @@ export async function runSynthesisEngine(inputs: SynthesisInputs): Promise<Synth
     return noPick("No insider-conviction candidates surfaced today.");
   }
 
-  // Only run the Technical Agent on the single top-ranked insider candidate
-  // (not the top 3 in parallel) — Gemini's free tier caps at ~5 requests per
-  // minute, and this pipeline already makes 4 calls total (macro, insider,
-  // technical, synthesis) in one run. Bursting 3 parallel technical calls on
-  // top of that reliably blows the quota.
-  const primaryTicker = insider.candidates[0].ticker;
+  // Only run the Technical Agent on a single candidate (not several in
+  // parallel) — Gemini's free tier caps at ~5 requests per minute, and this
+  // pipeline already makes 4 calls total (macro, insider, technical,
+  // synthesis) in one run. Bursting parallel technical calls on top of that
+  // reliably blows the quota.
+  const primaryTicker = (inputs.candidate ?? insider.candidates[0]).ticker;
   let technical: TechnicalAgentOutput | null = null;
   try {
     technical = await runTechnicalAgent(primaryTicker);
@@ -82,7 +94,7 @@ export async function runSynthesisEngine(inputs: SynthesisInputs): Promise<Synth
 MACRO CONTEXT:
 ${JSON.stringify(macro, null, 2)}
 
-ALL INSIDER CANDIDATES CONSIDERED TODAY (for context; you are only evaluating the top-ranked one below):
+ALL INSIDER CANDIDATES CONSIDERED TODAY (for context; you are only evaluating one of them, shown below):
 ${JSON.stringify(insider.candidates, null, 2)}
 
 CANDIDATE UNDER EVALUATION: ${primaryTicker}
