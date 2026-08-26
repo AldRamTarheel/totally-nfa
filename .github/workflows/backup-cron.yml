@@ -1,0 +1,36 @@
+name: Backup Cron Trigger
+
+# Vercel's Hobby-tier cron scheduler is best-effort and can occasionally skip
+# a run entirely (observed: a full weekday with zero rows in the
+# pipeline_runs log despite a healthy, manually-verified pipeline). This
+# workflow pings the same endpoints a few minutes after Vercel's own
+# schedule as a free, independent backup. It's always safe to run: the
+# active-ticker unique index in Supabase means a redundant hit is a no-op
+# ("duplicate-active"/"no-picks-to-grade" response) if Vercel already ran.
+
+on:
+  schedule:
+    # 10 min after Vercel's daily-pick slot (30 13 * * 1-5 UTC ~ 9:30am ET)
+    - cron: "40 13 * * 1-5"
+    # 10 min after Vercel's weekly-grade slot (0 20 * * 5 UTC)
+    - cron: "10 20 * * 5"
+  workflow_dispatch:
+
+jobs:
+  trigger-daily-pick:
+    if: github.event.schedule == '40 13 * * 1-5' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger daily-pick
+        run: |
+          curl -sf -X POST https://totally-nfa.vercel.app/api/cron/daily-pick \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
+
+  trigger-weekly-grade:
+    if: github.event.schedule == '10 20 * * 5' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger weekly-grade
+        run: |
+          curl -sf -X POST https://totally-nfa.vercel.app/api/cron/weekly-grade \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
