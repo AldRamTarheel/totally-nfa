@@ -20,6 +20,33 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
 /**
+ * True if today's daily-pick decision (pick / duplicate / no-pick) has
+ * already been made and logged. Multiple schedulers now hit this endpoint
+ * as independent backups for each other (Vercel Cron, GitHub Actions,
+ * cron-job.org) since none of them alone has proven reliable on the free
+ * tier — Vercel Hobby cron has both silently skipped entire days AND fired
+ * up to an hour late, sometimes landing right on top of a manual retry.
+ * Without this guard, every redundant trigger burns the macro+insider
+ * Gemini calls again just to re-derive "nothing new" — this happened for
+ * real on 2026-08-27 (two full picks minutes apart from one manual trigger
+ * plus one very-late Vercel fire). A prior 'error' doesn't count as
+ * "already handled" — a retry after a genuine failure should still run.
+ */
+async function alreadyHandledToday(supabase: SupabaseClient): Promise<boolean> {
+  const startOfDayUtc = new Date();
+  startOfDayUtc.setUTCHours(0, 0, 0, 0);
+  const { data } = await supabase
+    .from("pipeline_runs")
+    .select("id")
+    .eq("job", "daily-pick")
+    .in("status", ["picked", "duplicate", "no-pick"])
+    .gte("created_at", startOfDayUtc.toISOString())
+    .limit(1)
+    .maybeSingle();
+  return !!data;
+}
+
+/**
  * Sends the "nothing new today" notification — a genuine daily check-in
  * instead of silence, so a run of quiet days never feels like the app went
  * dark. Reviews whatever's currently active (if anything) via the
@@ -72,6 +99,15 @@ async function handle(req: Request): Promise<Response> {
     // more than new ideas, and this is the only time in the day this runs.
     const closures = await closeHitPositions(supabase);
     await notifyClosures(topic, closures);
+
+    // 1b. If today's pick decision was already made by an earlier trigger
+    // (a different scheduler, or a manual retry), stop here — no Gemini
+    // calls, no duplicate notification. Position exits above still run
+    // every time regardless, since those are free (Yahoo-only) and time-
+    // sensitive no matter how many schedulers fire.
+    if (await alreadyHandledToday(supabase)) {
+      return Response.json({ status: "already-handled-today", closures });
+    }
 
     // 2. Run the reasoning pipeline: macro -> insider (2 Gemini calls).
     const [macroResult, insider] = await Promise.all([runMacroAgent(), runInsiderAgent()]);
