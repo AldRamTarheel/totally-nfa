@@ -136,3 +136,30 @@ export async function getEarningsCalendar(symbol: string): Promise<EarningsCalen
     return { earningsDate: null, exDividendDate: null, dividendDate: null };
   }
 }
+
+export interface SectorInfo {
+  sector: string | null;
+  industry: string | null;
+}
+
+/**
+ * Sector/industry classification for the performance page's sector
+ * diversification chart. Non-fatal: returns all-null on failure rather than
+ * throwing, since this is a supplementary UI breakdown, not core pipeline
+ * data.
+ */
+export async function getSectorInfo(symbol: string): Promise<SectorInfo> {
+  try {
+    const result = await yf.quoteSummary(symbol, { modules: ["assetProfile"] });
+    const profile = (result as unknown as Record<string, unknown>).assetProfile as
+      | Record<string, unknown>
+      | undefined;
+    return {
+      sector: (profile?.sector as string | undefined) ?? null,
+      industry: (profile?.industry as string | undefined) ?? null,
+    };
+  } catch (err) {
+    console.error(`getSectorInfo(${symbol}) failed:`, err);
+    return { sector: null, industry: null };
+  }
+}

@@ -1,5 +1,6 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { PicksTable } from "@/components/picks/picks-table";
+import { AskAiCard } from "@/components/dashboard/ask-ai-card";
 import { getBrowserSupabase } from "@/lib/supabase/client";
 import type { StockPick } from "@/lib/types";
 
@@ -31,6 +32,8 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-8">
+      <AskAiCard />
+
       <Card>
         <CardHeader>
           <CardTitle>Active Picks</CardTitle>

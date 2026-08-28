@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import type { Metadata } from "next";
 import { format } from "date-fns";
 import { ArrowLeft, ExternalLink } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -9,6 +10,8 @@ import { ConvictionBadge } from "@/components/picks/conviction-badge";
 import { PickPriceStats } from "@/components/picks/pick-price-stats";
 import { PriceSparkline } from "@/components/picks/price-sparkline";
 import { EarningsFlag } from "@/components/picks/earnings-flag";
+import { StaleBadge } from "@/components/picks/stale-badge";
+import { ShareButton } from "@/components/picks/share-button";
 import { getBrowserSupabase } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import type { StockPick } from "@/lib/types";
@@ -19,6 +22,46 @@ async function getPick(id: string): Promise<StockPick | null> {
   const supabase = getBrowserSupabase();
   const { data } = await supabase.from("stock_picks").select("*").eq("id", id).maybeSingle();
   return (data as StockPick) ?? null;
+}
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}): Promise<Metadata> {
+  const { id } = await params;
+
+  let pick: StockPick | null = null;
+  try {
+    pick = await getPick(id);
+  } catch {
+    pick = null;
+  }
+
+  if (!pick) {
+    return {
+      title: "Pick — Totally N.F.A.",
+      description: "Educational AI stock pick. Not financial advice.",
+    };
+  }
+
+  const title = `${pick.ticker} — Totally N.F.A.`;
+  const description = `Conviction ${pick.conviction_score}/10 · ${
+    pick.status === "active" ? "Active pick" : statusDescription(pick)
+  } · Educational AI stock pick, not financial advice.`;
+
+  return {
+    title,
+    description,
+    openGraph: { title, description },
+    twitter: { card: "summary_large_image", title, description },
+  };
+}
+
+function statusDescription(pick: StockPick): string {
+  if (pick.status === "closed" && pick.closed_reason === "target_hit") return "Target hit";
+  if (pick.status === "closed" && pick.closed_reason === "invalidation_hit") return "Stopped out";
+  return "Closed";
 }
 
 const regimeStyle: Record<string, string> = {
@@ -73,13 +116,16 @@ export default async function PickDetailPage({ params }: { params: Promise<{ id:
 
   return (
     <div className="space-y-6">
-      <Link
-        href="/"
-        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
-      >
-        <ArrowLeft className="size-4" />
-        Dashboard
-      </Link>
+      <div className="flex items-center justify-between gap-3">
+        <Link
+          href="/"
+          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+        >
+          <ArrowLeft className="size-4" />
+          Dashboard
+        </Link>
+        <ShareButton url={`/picks/${pick.id}`} title={`${pick.ticker} — Totally N.F.A.`} />
+      </div>
 
       <div className="flex flex-wrap items-center gap-3">
         <h1 className="text-3xl font-bold tracking-tight">{pick.ticker}</h1>
@@ -93,6 +139,7 @@ export default async function PickDetailPage({ params }: { params: Promise<{ id:
         </Badge>
         {pick.category && <Badge variant="outline">{pick.category}</Badge>}
         {pick.status === "active" && <EarningsFlag ticker={pick.ticker} />}
+        {pick.status === "active" && <StaleBadge createdAt={pick.created_at} />}
       </div>
       <p className="text-sm text-muted-foreground -mt-4">
         Picked {format(new Date(pick.created_at), "MMMM d, yyyy 'at' h:mm a")}

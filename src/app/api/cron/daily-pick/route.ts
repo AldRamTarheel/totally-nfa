@@ -10,6 +10,8 @@ import { notifyClosures } from "@/lib/notifications/position-alerts";
 import { closeHitPositions } from "@/lib/position-monitor";
 import { sendCronFailureNotification } from "@/lib/notifications/cron-failure";
 import { logPipelineRun } from "@/lib/pipeline-log";
+import { findFreshCandidate } from "@/lib/candidate-selection";
+import { isAtCapacity, MAX_ACTIVE_POSITIONS } from "@/lib/position-limits";
 import type { PickDetails, StockPick } from "@/lib/types";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -109,6 +111,23 @@ async function handle(req: Request): Promise<Response> {
       return Response.json({ status: "already-handled-today", closures });
     }
 
+    // 1c. Check the portfolio isn't already at capacity BEFORE spending any
+    // Gemini quota — this must run ahead of the macro+insider calls below,
+    // not after, since there's no point paying for a new pick we'd just
+    // discard for lack of room. Reuse this same active-tickers query for the
+    // anti-repetition check later in the function instead of querying twice.
+    const { data: activeRows } = await supabase.from("stock_picks").select("ticker").eq("status", "active");
+    const activeTickers = new Set((activeRows ?? []).map((r) => r.ticker as string));
+    if (isAtCapacity(activeTickers.size)) {
+      await sendNoPickUpdate(
+        supabase,
+        topic,
+        "no-pick",
+        `Portfolio at capacity (${activeTickers.size}/${MAX_ACTIVE_POSITIONS} active positions) — pausing new picks until something exits.`
+      );
+      return Response.json({ status: "at-capacity", activeCount: activeTickers.size, closures });
+    }
+
     // 2. Run the reasoning pipeline: macro -> insider (2 Gemini calls).
     const [macroResult, insider] = await Promise.all([runMacroAgent(), runInsiderAgent()]);
     const { analysis: macro, news: macroNews, markets } = macroResult;
@@ -123,9 +142,7 @@ async function handle(req: Request): Promise<Response> {
     // looking at candidate #1. Without this, a ticker that keeps
     // resurfacing as the top insider candidate would silently block the
     // pipeline from ever considering anything else once it's already held.
-    const { data: activeRows } = await supabase.from("stock_picks").select("ticker").eq("status", "active");
-    const activeTickers = new Set((activeRows ?? []).map((r) => r.ticker as string));
-    const freshCandidate = insider.candidates.find((c) => !activeTickers.has(c.ticker));
+    const freshCandidate = findFreshCandidate(insider.candidates, activeTickers);
 
     if (!freshCandidate) {
       await sendNoPickUpdate(

@@ -23,6 +23,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ConvictionBadge } from "@/components/picks/conviction-badge";
+import { StaleBadge } from "@/components/picks/stale-badge";
 import { computePnlPercent } from "@/lib/pnl";
 import { cn } from "@/lib/utils";
 import type { StockPick } from "@/lib/types";
@@ -91,7 +92,10 @@ function PicksRows({ picks, liveQuotes }: { picks: StockPick[]; liveQuotes: Quot
             </Badge>
           </TableCell>
           <TableCell className="text-muted-foreground text-xs">
-            {formatDistanceToNow(new Date(pick.created_at), { addSuffix: true })}
+            <div className="flex items-center gap-1.5">
+              <span>{formatDistanceToNow(new Date(pick.created_at), { addSuffix: true })}</span>
+              {pick.status === "active" && <StaleBadge createdAt={pick.created_at} />}
+            </div>
           </TableCell>
           <TableCell>
             <ChevronRight className="size-4 text-muted-foreground" />
@@ -137,7 +141,10 @@ function PickCard({ pick, livePrice }: { pick: StockPick; livePrice: number | nu
         <Badge variant={pick.status === "active" ? "default" : "secondary"} className="capitalize">
           {statusLabel(pick)}
         </Badge>
-        <span>{formatDistanceToNow(new Date(pick.created_at), { addSuffix: true })}</span>
+        <div className="flex items-center gap-1.5">
+          <span>{formatDistanceToNow(new Date(pick.created_at), { addSuffix: true })}</span>
+          {pick.status === "active" && <StaleBadge createdAt={pick.created_at} />}
+        </div>
       </div>
     </Link>
   );

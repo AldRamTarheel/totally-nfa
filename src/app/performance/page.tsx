@@ -3,8 +3,10 @@ import { BenchmarkComparisonCard } from "@/components/performance/benchmark-comp
 import { EquityCurveChart } from "@/components/performance/equity-curve-chart";
 import { PortfolioSimCard } from "@/components/performance/portfolio-sim-card";
 import { ConvictionCalibrationTable } from "@/components/performance/conviction-calibration-table";
+import { WinRateCard } from "@/components/performance/win-rate-card";
+import { SectorBreakdownChart } from "@/components/performance/sector-breakdown-chart";
 import { getBrowserSupabase } from "@/lib/supabase/client";
-import { getHistorical, getQuotes } from "@/lib/data/yahoo";
+import { getHistorical, getQuotes, getSectorInfo } from "@/lib/data/yahoo";
 import {
   resolvePicks,
   computeBenchmarkSummary,
@@ -14,6 +16,8 @@ import {
   BENCHMARKS,
   type BenchmarkSummary,
 } from "@/lib/analytics/performance";
+import { computeWinRate } from "@/lib/analytics/win-rate";
+import { computeSectorBreakdown } from "@/lib/analytics/sector-breakdown";
 import type { StockPick } from "@/lib/types";
 import type { OhlcvBar } from "@/lib/data/yahoo";
 
@@ -92,6 +96,25 @@ export default async function PerformancePage() {
     summariesBySymbol[b.symbol] = computeBenchmarkSummary(resolvedForBenchmark);
   }
 
+  // Sector info is Yahoo-only (zero Gemini cost) and fail-soft per ticker —
+  // a lookup failure just falls into "Unknown" in the breakdown rather than
+  // dropping the pick or failing the page.
+  const uniqueTickers = [...new Set(picks.map((p) => p.ticker))];
+  const sectorResults = await Promise.allSettled(
+    uniqueTickers.map(async (ticker) => ({ ticker, info: await getSectorInfo(ticker) }))
+  );
+  const sectorByTicker = new Map<string, string | null>();
+  for (const result of sectorResults) {
+    if (result.status === "fulfilled") {
+      sectorByTicker.set(result.value.ticker, result.value.info.sector);
+    } else {
+      console.error("performance page: sector info fetch failed:", result.reason);
+    }
+  }
+
+  const winRateSummary = computeWinRate(picks);
+  const sectorBuckets = computeSectorBreakdown(picks, sectorByTicker, livePriceByTicker);
+
   return (
     <div className="space-y-6">
       <div>
@@ -104,6 +127,8 @@ export default async function PerformancePage() {
       <EquityCurveChart points={equityCurve} />
       <PortfolioSimCard sim={sim} />
       <ConvictionCalibrationTable buckets={buckets} />
+      <WinRateCard summary={winRateSummary} />
+      <SectorBreakdownChart buckets={sectorBuckets} />
     </div>
   );
 }
