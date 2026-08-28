@@ -38,6 +38,29 @@ export interface ConvictionBucket {
   avgReturnPct: number | null;
 }
 
+export interface BenchmarkDefinition {
+  symbol: string;
+  label: string;
+  category: "Index Funds" | "Commodities";
+}
+
+/**
+ * Curated comparison set — index funds plus commodity-tracking ETFs (actual
+ * futures aren't a clean fit for yahoo-finance2's retail-quote endpoints,
+ * but GLD/SLV/USO already serve as the app's commodity proxies elsewhere —
+ * see MACRO_TICKERS). Each is just another getHistorical() call, so adding
+ * more here costs zero Gemini quota.
+ */
+export const BENCHMARKS: BenchmarkDefinition[] = [
+  { symbol: "QQQ", label: "Nasdaq-100 (QQQ)", category: "Index Funds" },
+  { symbol: "SPY", label: "S&P 500 (SPY)", category: "Index Funds" },
+  { symbol: "DIA", label: "Dow Jones (DIA)", category: "Index Funds" },
+  { symbol: "IWM", label: "Russell 2000 (IWM)", category: "Index Funds" },
+  { symbol: "GLD", label: "Gold (GLD)", category: "Commodities" },
+  { symbol: "SLV", label: "Silver (SLV)", category: "Commodities" },
+  { symbol: "USO", label: "Crude Oil (USO)", category: "Commodities" },
+];
+
 /** The bar with the largest `date <= target`, or the first bar if none qualify. */
 export function findNearestBar(bars: OhlcvBar[], target: Date): OhlcvBar | undefined {
   if (bars.length === 0) return undefined;
@@ -55,7 +78,9 @@ export function findNearestBar(bars: OhlcvBar[], target: Date): OhlcvBar | undef
 
 export function resolvePicks(
   picks: StockPick[],
-  qqqBars: OhlcvBar[],
+  // Whichever benchmark's daily bars to diff each pick's window against —
+  // called once per benchmark in BENCHMARKS, not just QQQ.
+  benchmarkBars: OhlcvBar[],
   livePriceByTicker: Map<string, number>
 ): ResolvedPick[] {
   return picks.map((pick) => {
@@ -66,8 +91,8 @@ export function resolvePicks(
         : (livePriceByTicker.get(pick.ticker) ?? pick.last_checked_price ?? pick.alert_price);
     const returnPct = computePnlPercent(pick.alert_price, endPrice);
 
-    const startBar = findNearestBar(qqqBars, new Date(pick.created_at));
-    const endBar = findNearestBar(qqqBars, endDate);
+    const startBar = findNearestBar(benchmarkBars, new Date(pick.created_at));
+    const endBar = findNearestBar(benchmarkBars, endDate);
     const benchmarkReturnPct = startBar && endBar ? computePnlPercent(startBar.close, endBar.close) : 0;
 
     return { pick, endDate, endPrice, returnPct, benchmarkReturnPct };
