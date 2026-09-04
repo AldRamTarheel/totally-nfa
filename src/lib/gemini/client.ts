@@ -44,8 +44,21 @@ function sleep(ms: number) {
 export async function generateStructured<T>(prompt: string, schema: ZodType<T>): Promise<T> {
   const env = getServerEnv();
   const ai = getClient();
-  const MAX_TRANSIENT_RETRIES = 3;
-  const MAX_RETRY_WAIT_MS = 20_000;
+  // Vercel Hobby enforces a real ~60s function ceiling regardless of the
+  // `maxDuration` a route requests (see daily-pick/route.ts's comment on
+  // this). The old budget here (3 retries x 20s max wait = 60s of sleeping
+  // ALONE, before counting any actual network latency) could by itself
+  // exceed that ceiling for a single Gemini call — and a normal run makes
+  // up to 4 of them. When that happens the platform kills the function
+  // mid-retry, which skips this module's own try/catch entirely: no
+  // pipeline_runs row, no cron-failure ntfy alert, just a raw timeout that
+  // only an external scheduler's own failure notification ever sees
+  // (observed for real on 2026-09-04 — a GitHub Actions run failed after
+  // ~2 minutes with zero corresponding log). Tightened so a bad Gemini day
+  // fails gracefully (caught, logged, alerted) well inside the real ceiling
+  // instead of getting killed by the platform.
+  const MAX_TRANSIENT_RETRIES = 2;
+  const MAX_RETRY_WAIT_MS = 8_000;
 
   async function attempt(fullPrompt: string): Promise<string> {
     for (let i = 0; ; i++) {
