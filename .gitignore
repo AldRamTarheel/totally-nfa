@@ -40,3 +40,14 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# impeccable (npx impeccable install) -- machine/OS-arch-specific local
+# tooling (includes a ~12MB compiled binary per platform, duplicated across
+# every detected harness) and machine-local hook wiring. Not meant to be
+# committed -- re-run `npx impeccable install` on any other machine/clone.
+.claude/settings.local.json
+.claude/skills/impeccable/
+.claude/agents/impeccable-*.md
+.github/hooks/impeccable.json
+.github/skills/impeccable/
+.github/agents/impeccable-*.agent.md
